@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <title>Corrida das Letras</title>
+    <style>
+        :root {
+            --cor1: #fbbbad;
+            --cor2: #ee8695;
+            --cor3: #4a7a96;
+            --cor4: #333f58;
+            --cor5: #292831;
+            --ceu-claro: #ffe5dc; /* Céu mais claro dentro do canvas */
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            background-color: var(--cor1); /* Fundo do corpo */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            margin: 0;
+            height: 100vh;
+            color: var(--cor4); /* Texto do menu */
+        }
+
+        #start-screen, #game-over-screen {
+            margin-top: 20px;
+        }
+
+        #gameCanvas {
+            margin-top: 20px;
+            display: none;
+            border: 1px solid var(--cor4);
+            background-color: var(--ceu-claro); /* Céu mais claro */
+        }
+
+        #start-button, #restart-button {
+            background-color: var(--cor2); /* Botões */
+            color: var(--cor4);
+            border: none;
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        #start-button:hover, #restart-button:hover {
+            background-color: var(--cor3); /* Hover dos botões */
+        }
+
+        h1 {
+            color: var(--cor4); /* Título */
+        }
+    </style>
+</head>
+<body>
+    <h1>Corrida das Letras</h1>
+    <div id="start-screen">
+        <p>Digite uma palavra para começar:</p>
+        <input type="text" id="word-input" maxlength="10">
+        <button id="start-button">Iniciar Jogo</button>
+    </div>
+    <canvas id="gameCanvas" width="800" height="400"></canvas>
+    <div id="game-over-screen" style="display: none;">
+        <p id="game-over-message"></p>
+        <button id="restart-button">Jogar Novamente</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        const startScreen = document.getElementById('start-screen');
+        const wordInput = document.getElementById('word-input');
+        const startButton = document.getElementById('start-button');
+
+        const gameOverScreen = document.getElementById('game-over-screen');
+        const gameOverMessage = document.getElementById('game-over-message');
+        const restartButton = document.getElementById('restart-button');
+
+        // Sons
+        const backgroundTracks = [
+            new Audio('sfx/track1.wav'),
+            new Audio('sfx/track2.wav'),
+            new Audio('sfx/track3.wav')
+        ];
+        let currentTrack = null;
+
+        const jumpSound = new Audio('sfx/jump.wav');
+        const wordSound = new Audio('sfx/word.wav');
+        const endSound1 = new Audio('sfx/End1.wav');
+        const endSound2 = new Audio('sfx/End2.wav');
+
+        let word = '';
+        let playerLetter = '';
+        let obstacleLetters = [];
+        let currentObstacleIndex = 0;
+
+        let player = { x: 50, y: 320, width: 40, height: 40, vy: 0, jumping: false };
+        let obstacles = [];
+        let obstacleTimer = 0;
+        let obstacleInterval = getRandomInt(60, 100);
+        let gameOver = false;
+        let score = 0;
+
+        let wordFormed = '';
+        let wordCompleted = false;
+        let wordEffectTimer = 0;
+
+        let gameSpeed = 5; // Velocidade inicial do jogo
+
+        // Novos arrays para fossos e plataformas
+        let terrainObstacles = [];
+        let terrainObstacleTimer = 0;
+        let terrainObstacleInterval = getRandomInt(200, 300);
+
+        // Inicia o jogo ao clicar no botão ou pressionar Enter
+        startButton.addEventListener('click', startGameHandler);
+        wordInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                startGameHandler();
+            }
+        });
+
+        function startGameHandler() {
+            word = wordInput.value.trim();
+            if (word.length < 2) {
+                alert('Por favor, insira uma palavra com pelo menos 2 letras.');
+                return;
+            }
+            playerLetter = word[0].toUpperCase();
+            obstacleLetters = word.slice(1).toUpperCase().split('');
+            startScreen.style.display = 'none';
+            gameOverScreen.style.display = 'none';
+            canvas.style.display = 'block';
+            resetGame();
+            startGame();
+
+            // Seleciona uma trilha sonora aleatoriamente
+            currentTrack = backgroundTracks[Math.floor(Math.random() * backgroundTracks.length)];
+            currentTrack.loop = true;
+            currentTrack.play();
+        }
+
+        // Reinicia o jogo ao clicar no botão
+        restartButton.addEventListener('click', function() {
+            startScreen.style.display = 'block';
+            gameOverScreen.style.display = 'none';
+            canvas.style.display = 'none';
+            wordInput.value = '';
+            wordFormed = '';
+            if (currentTrack) {
+                currentTrack.pause();
+                currentTrack.currentTime = 0;
+            }
+        });
+
+        // Evento para pular ao pressionar a barra de espaço ou seta para cima
+        document.addEventListener('keydown', function(e) {
+            if (e.code === 'Space' || e.code === 'ArrowUp') {
+                if (!player.jumping) {
+                    player.vy = -12;
+                    player.jumping = true;
+                    jumpSound.play();
+                }
+            }
+        });
+
+        // Evento para pular ao clicar com o mouse
+        document.addEventListener('click', function() {
+            if (!player.jumping) {
+                player.vy = -12;
+                player.jumping = true;
+                jumpSound.play();
+            }
+        });
+
+        function resetGame() {
+            player.y = 320;
+            player.vy = 0;
+            player.jumping = false;
+            obstacles = [];
+            obstacleTimer = 0;
+            obstacleInterval = getRandomInt(60, 100);
+            terrainObstacles = [];
+            terrainObstacleTimer = 0;
+            terrainObstacleInterval = getRandomInt(200, 300);
+            gameOver = false;
+            score = 0;
+            currentObstacleIndex = 0;
+            wordFormed = '';
+            wordCompleted = false;
+            wordEffectTimer = 0;
+            gameSpeed = 5;
+        }
+
+        function startGame() {
+            requestAnimationFrame(update);
+        }
+
+        function update() {
+            if (gameOver) {
+                canvas.style.display = 'none';
+                gameOverScreen.style.display = 'block';
+                gameOverMessage.innerText = 'Fim de Jogo! Sua pontuação: ' + score;
+                if (currentTrack) {
+                    currentTrack.pause();
+                    currentTrack.currentTime = 0;
+                }
+                // Toca os sons de fim de jogo
+                endSound1.play();
+                endSound1.onended = function() {
+                    endSound2.play();
+                };
+                return;
+            }
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Desenha o céu dentro do canvas com a cor mais clara
+            ctx.fillStyle = '#ffe5dc'; // Céu mais claro (var(--ceu-claro))
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Atualiza o jogador
+            player.y += player.vy;
+            player.vy += 0.5; // Gravidade
+
+            // Verifica colisão com o chão ou plataformas
+            let onGround = false;
+            if (player.y + player.height >= 360) {
+                // Verifica se está caindo em um fosso
+                if (isOverPit(player.x, player.width)) {
+                    // Cai no fosso
+                    gameOver = true;
+                } else {
+                    player.y = 360 - player.height;
+                    player.vy = 0;
+                    player.jumping = false;
+                    onGround = true;
+                }
+            } else {
+                // Verifica colisão com plataformas
+                for (let platform of terrainObstacles) {
+                    if (platform.type === 'platform') {
+                        if (
+                            player.x + player.width > platform.x &&
+                            player.x < platform.x + platform.width &&
+                            player.y + player.height >= platform.y &&
+                            player.y + player.height <= platform.y + 5 &&
+                            player.vy >= 0
+                        ) {
+                            player.y = platform.y - player.height;
+                            player.vy = 0;
+                            player.jumping = false;
+                            onGround = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // Se o jogador cair abaixo do chão, game over
+            if (player.y > canvas.height) {
+                gameOver = true;
+            }
+
+            // Desenha o chão (considerando fossos)
+            drawGround();
+
+            // Desenha as plataformas
+            drawPlatforms();
+
+            // Desenha o jogador como letra maior
+            ctx.fillStyle = '#4a7a96'; // Letras do jogo (var(--cor3))
+            ctx.font = 'bold 40px Arial';
+            ctx.fillText(playerLetter, player.x, player.y + player.height);
+
+            // Gera obstáculos de letras
+            obstacleTimer++;
+            if (obstacleTimer > obstacleInterval && obstacles.length === 0 && !wordCompleted) {
+                if (currentObstacleIndex < obstacleLetters.length) {
+                    let obstacleLetter = obstacleLetters[currentObstacleIndex];
+                    obstacles.push({ x: canvas.width, y: 320, letter: obstacleLetter, passed: false });
+                    obstacleTimer = 0;
+                    obstacleInterval = getRandomInt(60, 100);
+                    currentObstacleIndex++;
+                } else {
+                    // Palavra completa
+                    wordCompleted = true;
+                    score += 10; // Adiciona 10 pontos por completar a palavra
+                    wordEffectTimer = 60; // Duração do efeito visual
+                    wordSound.play(); // Toca o som de palavra completa
+                }
+            }
+
+            // Gera fossos e plataformas
+            terrainObstacleTimer++;
+            if (terrainObstacleTimer > terrainObstacleInterval) {
+                generateTerrainObstacle();
+                terrainObstacleTimer = 0;
+                terrainObstacleInterval = getRandomInt(200, 300);
+            }
+
+            // Aumenta a velocidade do jogo
+            gameSpeed += 0.001;
+
+            // Atualiza e desenha obstáculos de letras
+            for (let i = 0; i < obstacles.length; i++) {
+                let obs = obstacles[i];
+                obs.x -= gameSpeed;
+
+                ctx.fillStyle = '#4a7a96'; // Letras do jogo (var(--cor3))
+                ctx.font = 'bold 40px Arial';
+                ctx.fillText(obs.letter, obs.x, obs.y + player.height);
+
+                // Detecção de colisão
+                if (
+                    player.x < obs.x + player.width &&
+                    player.x + player.width > obs.x &&
+                    player.y < obs.y + player.height &&
+                    player.y + player.height > obs.y
+                ) {
+                    gameOver = true;
+                }
+
+                // Verifica se o obstáculo foi ultrapassado
+                if (!obs.passed && obs.x + player.width < player.x) {
+                    obs.passed = true;
+                    wordFormed += obs.letter;
+                    score += 1; // Adiciona 1 ponto por pular a letra
+                }
+            }
+
+            // Remove obstáculos de letras fora da tela
+            obstacles = obstacles.filter(obs => obs.x + player.width > 0);
+
+            // Atualiza e remove obstáculos de terreno fora da tela
+            for (let i = 0; i < terrainObstacles.length; i++) {
+                let obs = terrainObstacles[i];
+                obs.x -= gameSpeed;
+            }
+            terrainObstacles = terrainObstacles.filter(obs => obs.x + obs.width > 0);
+
+            // Exibe a pontuação
+            ctx.font = 'bold 20px Arial';
+            ctx.fillStyle = '#292831'; // Letras da pontuação (var(--cor5))
+            ctx.fillText('Pontuação: ' + score, 650, 30);
+
+            // Exibe a palavra sendo formada
+            ctx.fillText('Palavra: ' + playerLetter + wordFormed, 50, 30);
+
+            // Efeito visual ao completar a palavra
+            if (wordCompleted && wordEffectTimer > 0) {
+                ctx.font = 'bold 30px Arial';
+                ctx.fillStyle = '#333f58'; // Letras do menu (var(--cor4))
+                ctx.fillText('Você completou a palavra!', 150, 150);
+                ctx.font = 'bold 24px Arial';
+                ctx.fillText('+10 pontos!', 300, 200);
+                wordEffectTimer--;
+                if (wordEffectTimer === 0) {
+                    // Reinicia para a próxima rodada
+                    currentObstacleIndex = 0;
+                    wordFormed = '';
+                    wordCompleted = false;
+                }
+            }
+
+            requestAnimationFrame(update);
+        }
+
+        function drawGround() {
+            ctx.fillStyle = '#ee8695'; // Chão (var(--cor2))
+            let groundY = 360;
+            let lastX = 0;
+
+            for (let obs of terrainObstacles) {
+                if (obs.type === 'pit' && obs.x <= canvas.width) {
+                    // Desenha o chão até o início do fosso
+                    ctx.fillRect(lastX, groundY, obs.x - lastX, 40);
+                    // Atualiza o lastX para o fim do fosso
+                    lastX = obs.x + obs.width;
+                }
+            }
+
+            // Desenha o chão restante
+            if (lastX < canvas.width) {
+                ctx.fillRect(lastX, groundY, canvas.width - lastX, 40);
+            }
+        }
+
+        function drawPlatforms() {
+            ctx.fillStyle = '#ee8695'; // Cor da plataforma (mesma do chão)
+            for (let obs of terrainObstacles) {
+                if (obs.type === 'platform') {
+                    ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
+                }
+            }
+        }
+
+        function isOverPit(x, width) {
+            for (let obs of terrainObstacles) {
+                if (obs.type === 'pit') {
+                    if (x + width > obs.x && x < obs.x + obs.width) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        function generateTerrainObstacle() {
+            let type = Math.random() < 0.5 ? 'pit' : 'platform';
+            if (type === 'pit') {
+                // Gera um fosso
+                let pitWidth = getRandomInt(50, 100);
+                terrainObstacles.push({
+                    x: canvas.width,
+                    width: pitWidth,
+                    type: 'pit'
+                });
+            } else {
+                // Gera uma plataforma
+                let platformWidth = getRandomInt(50, 100);
+                let platformHeight = getRandomInt(20, 40);
+                terrainObstacles.push({
+                    x: canvas.width,
+                    y: 320 - platformHeight,
+                    width: platformWidth,
+                    height: platformHeight,
+                    type: 'platform'
+                });
+            }
+        }
+
+        // Função para gerar um número inteiro aleatório entre min e max
+        function getRandomInt(min, max) {
+            return Math.floor(Math.random() * (max - min + 1)) + min;
+        }
+    </script>
+</body>
+</html>
